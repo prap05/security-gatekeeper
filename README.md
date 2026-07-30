@@ -95,20 +95,6 @@ tests/fixtures/       # safe scanner-output fixtures
 docs/                 # interview and security-design notes
 ```
 
-## Interview-ready explanation
-
-Start with: “I built Security Gatekeeper because scanning alone creates noise. It orchestrates code, dependency, and web scanning, normalizes their output, and prioritizes the vulnerabilities most likely to matter.”
-
-Then explain the lifecycle:
-
-1. **Detect:** Semgrep checks code, Dependency-Check checks third-party components, and ZAP baselines a staging application.
-2. **Triage:** Python adapters map each vendor format to one finding model. The correlator merges only shared CVEs or matching CWE/title plus resource, avoiding over-deduplication.
-3. **Prioritize:** CVSS measures impact; EPSS estimates exploit likelihood. A verified result from more than one source is a useful corroboration signal.
-4. **Remediate:** qualifying findings become idempotent GitHub issues with location, evidence, references, and remediation guidance.
-5. **Prevent:** the quality gate blocks merges above the agreed risk threshold and retains evidence as a workflow artifact.
-
-For likely interview questions and trade-offs, see [docs/interview-guide.md](docs/interview-guide.md).
-
 ## Responsible use
 
 Use ZAP only against systems you own or have explicit permission to test. Configure a disposable staging environment; do not scan production from this sample pipeline.
