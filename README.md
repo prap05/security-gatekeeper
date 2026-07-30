@@ -73,7 +73,7 @@ gatekeeper gate --report reports/gatekeeper.json --threshold 70
 The workflow is at [`.github/workflows/security-gatekeeper.yml`](.github/workflows/security-gatekeeper.yml). Push this repository to GitHub and enable Actions.
 
 1. Create a non-production, authorized staging target, then set the repository variable `DAST_TARGET_URL`. Without it, ZAP is safely skipped.
-2. Optionally configure an `NVD_API_KEY` in the Dependency-Check command for faster NVD updates on a real project.
+2. For OWASP Dependency-Check, create a free NVD API key and save it as the GitHub Actions secret `NVD_API_KEY`. The workflow skips only the SCA step until this is configured, preventing a rate-limited NVD download from timing out the entire pipeline.
 3. Add the `security-gatekeeper` and `security` labels to the repository, or allow the workflow to create them.
 4. Tune `RISK_THRESHOLD` and `ISSUE_THRESHOLD` to match the team’s risk appetite.
 5. Before a production rollout, pin container images and third-party GitHub Actions to immutable digests/SHAs and manage updates with Dependabot or Renovate.

@@ -21,11 +21,12 @@ jobs:
   scan-and-gate:
     name: SAST + SCA + DAST risk gate
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       REPORTS: reports
       RISK_THRESHOLD: "70"
       ISSUE_THRESHOLD: "45"
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
     steps:
       - name: Checkout trusted repository content
         uses: actions/checkout@v6
@@ -59,13 +60,17 @@ jobs:
             semgrep scan --config p/python --json --output /reports/semgrep.json /src
 
       - name: SCA - OWASP Dependency-Check
+        # First-time NVD downloads without an API key can exceed the CI job timeout.
+        # The empty placeholder report remains valid, so the other security controls still run.
+        if: env.NVD_API_KEY != ''
         continue-on-error: true
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/src:ro" \
             -v "$GITHUB_WORKSPACE/$REPORTS:/reports:rw" \
             owasp/dependency-check:latest \
-            --scan /src --format JSON --out /reports --project "Security Gatekeeper"
+            --scan /src --format JSON --out /reports --project "Security Gatekeeper" \
+            --nvdApiKey "$NVD_API_KEY"
 
       # Only run DAST against an explicitly configured, authorized staging URL.
       # Never point this at production; baseline scans are passive but still make requests.
@@ -87,7 +92,8 @@ jobs:
             --threshold "$RISK_THRESHOLD"
 
       - name: Create idempotent GitHub issues
-        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+        # Do not mask a preceding scanner/normalization failure with a missing-report error.
+        if: success() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -107,5 +113,4 @@ jobs:
           retention-days: 30
 
       - name: Enforce risk threshold
-        if: always()
         run: gatekeeper gate --report "$REPORTS/gatekeeper.json" --threshold "$RISK_THRESHOLD"
