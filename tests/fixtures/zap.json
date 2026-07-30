@@ -1,0 +1,19 @@
+{
+  "site": [
+    {
+      "@name": "https://staging.example.test",
+      "alerts": [
+        {
+          "pluginid": "10038",
+          "alert": "Content Security Policy (CSP) Header Not Set",
+          "riskcode": "2",
+          "desc": "A Content Security Policy header was not set.",
+          "solution": "Define a restrictive Content-Security-Policy response header.",
+          "reference": "https://www.zaproxy.org/docs/alerts/10038/",
+          "cweid": "693",
+          "instances": [{"uri": "https://staging.example.test/account", "method": "GET", "evidence": ""}]
+        }
+      ]
+    }
+  ]
+}

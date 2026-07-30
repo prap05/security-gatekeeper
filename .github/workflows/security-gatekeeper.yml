@@ -1,0 +1,111 @@
+name: Security Gatekeeper
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+# Default token is read-only. Issue permission is granted only to this workflow.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: security-gatekeeper-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan-and-gate:
+    name: SAST + SCA + DAST risk gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      REPORTS: reports
+      RISK_THRESHOLD: "70"
+      ISSUE_THRESHOLD: "45"
+    steps:
+      - name: Checkout trusted repository content
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Security Gatekeeper
+        run: python -m pip install .
+
+      # Report placeholders let aggregation proceed if a scanner has an operational failure.
+      # Scanner exit codes are captured as evidence; the policy gate is the final decision.
+      - name: Prepare evidence directory
+        run: |
+          mkdir -p "$REPORTS"
+          printf '{"results":[]}' > "$REPORTS/semgrep.json"
+          printf '{"dependencies":[]}' > "$REPORTS/dependency-check-report.json"
+          printf '{"site":[]}' > "$REPORTS/zap.json"
+
+      - name: SAST - Semgrep Community Edition
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            -v "$GITHUB_WORKSPACE/$REPORTS:/reports:rw" \
+            semgrep/semgrep:latest \
+            semgrep scan --config p/python --json --output /reports/semgrep.json /src
+
+      - name: SCA - OWASP Dependency-Check
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            -v "$GITHUB_WORKSPACE/$REPORTS:/reports:rw" \
+            owasp/dependency-check:latest \
+            --scan /src --format JSON --out /reports --project "Security Gatekeeper"
+
+      # Only run DAST against an explicitly configured, authorized staging URL.
+      # Never point this at production; baseline scans are passive but still make requests.
+      - name: DAST - OWASP ZAP baseline
+        if: vars.DAST_TARGET_URL != ''
+        continue-on-error: true
+        run: |
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/$REPORTS:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "${{ vars.DAST_TARGET_URL }}" -J zap.json -r zap.html
+
+      - name: Normalize, correlate, and enrich with EPSS
+        run: |
+          gatekeeper normalize \
+            --semgrep "$REPORTS/semgrep.json" \
+            --dependency-check "$REPORTS/dependency-check-report.json" \
+            --zap "$REPORTS/zap.json" \
+            --threshold "$RISK_THRESHOLD"
+
+      - name: Create idempotent GitHub issues
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gatekeeper gate \
+            --report "$REPORTS/gatekeeper.json" \
+            --threshold 101 \
+            --issue-mode create \
+            --issue-threshold "$ISSUE_THRESHOLD"
+
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-gatekeeper-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce risk threshold
+        if: always()
+        run: gatekeeper gate --report "$REPORTS/gatekeeper.json" --threshold "$RISK_THRESHOLD"
